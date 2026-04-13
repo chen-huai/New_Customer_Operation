@@ -29,10 +29,11 @@ class CustomerMapper:
         customer_data = OrderedDict()
 
         customer_data["source_file"] = parsed_form["source_name"]
-        customer_data["branch_code"] = self._first_checked_label(tables[0]) if len(tables) > 0 else ""
+        customer_data["branch_codes"] = self._all_checked_labels(tables[0]) if len(tables) > 0 else []
+        customer_data["branch_code"] = customer_data["branch_codes"][0] if customer_data["branch_codes"] else ""
         customer_data["customer_category"] = self._first_checked_label(tables[1]) if len(tables) > 1 else ""
 
-        if not customer_data["branch_code"]:
+        if not customer_data["branch_codes"]:
             warnings.append("未检测到 branch/site 勾选项。")
         if not customer_data["customer_category"]:
             warnings.append("Customer category 未检测到勾选项。")
@@ -158,17 +159,27 @@ class CustomerMapper:
         bank_name, bank_account = self._split_bank_info(customer_data.get("bank_account", ""))
         invoice_type = self._map_invoice_type(customer_data)
 
-        site_ids = self._map_site_ids(customer_data.get("branch_code", ""))
-        if customer_data.get("branch_code") and not site_ids:
-            warnings.append(f"未配置 branch_code={customer_data.get('branch_code')} 对应的 siteIds。")
+        site_ids = self._map_site_ids(customer_data.get("branch_codes", []))
+        if customer_data.get("branch_codes") and not site_ids:
+            warnings.append(
+                f"未配置 branch_codes={customer_data.get('branch_codes')} 对应的 siteIds。"
+            )
 
         payer_name_cn = customer_data.get("customer_name_cn", "")
         payer_name_en = customer_data.get("customer_name_en", "")
+        is_foreign_customer = not payer_name_cn.strip()
         contact_address_cn = customer_data.get("contact_address_cn", "")
         contact_address_en = customer_data.get("contact_address_en", "")
         delivery_address_cn = customer_data.get("delivery_address_cn", "")
         register_address = customer_data.get("registered_address_tel") or contact_address_cn or contact_address_en
         contact_address = delivery_address_cn or contact_address_cn or contact_address_en
+        default_currency = "" if is_foreign_customer else "CNY"
+        register_address_value = "" if is_foreign_customer else register_address
+        register_tel_value = "" if is_foreign_customer else (
+            customer_data.get("telephone")
+            or customer_data.get("mobile")
+            or customer_data.get("direct_line", "")
+        )
 
         payload = OrderedDict(
             [
@@ -186,13 +197,8 @@ class CustomerMapper:
                 ),
                 ("bankName", bank_name),
                 ("bankAccount", bank_account),
-                ("registerAddress", register_address),
-                (
-                    "registerTel",
-                    customer_data.get("telephone")
-                    or customer_data.get("mobile")
-                    or customer_data.get("direct_line", ""),
-                ),
+                ("registerAddress", register_address_value),
+                ("registerTel", register_tel_value),
                 ("registerFax", customer_data.get("fax", "")),
                 ("invoiceType", invoice_type),
                 ("monthlyPay", False),
@@ -200,7 +206,7 @@ class CustomerMapper:
                 ("website", ""),
                 ("shortName", payer_name_cn or payer_name_en),
                 ("excludeRevenue", False),
-                ("defaultCurrency", customer_data.get("currency", "")),
+                ("defaultCurrency", default_currency),
                 ("isSystemSend", False),
                 ("contactAddress", contact_address),
                 ("siteIds", site_ids),
@@ -319,9 +325,13 @@ class CustomerMapper:
             return self.INVOICE_TYPE_INVOICE
         return self.INVOICE_TYPE_INVOICE
 
-    def _map_site_ids(self, branch_code: str) -> list[int]:
-        site_id = self.SITE_ID_MAP.get(branch_code.strip())
-        return [site_id] if site_id is not None else []
+    def _map_site_ids(self, branch_codes: list[str]) -> list[int]:
+        site_ids = []
+        for branch_code in branch_codes:
+            site_id = self.SITE_ID_MAP.get(branch_code.strip())
+            if site_id is not None and site_id not in site_ids:
+                site_ids.append(site_id)
+        return site_ids
 
     def _clean_tax_payer_id(self, value: str) -> str:
         text = (value or "").strip()
@@ -392,12 +402,17 @@ class CustomerMapper:
         return row[index]["text"]
 
     def _first_checked_label(self, table: dict) -> str:
+        labels = self._all_checked_labels(table)
+        return labels[0] if labels else ""
+
+    def _all_checked_labels(self, table: dict) -> list[str]:
+        labels = []
         for row in table["rows"]:
             for cell in row:
                 for option in cell["checkbox_options"]:
-                    if option["checked"]:
-                        return option["label"]
-        return ""
+                    if option["checked"] and option["label"] not in labels:
+                        labels.append(option["label"])
+        return labels
 
     def _first_checked_checkbox(self, options: list) -> str:
         for option in options:

@@ -82,11 +82,16 @@ class WordFormParser:
 
     def _is_checkbox_checked(self, checkbox) -> bool:
         checked_node = checkbox.find("./w:checked", WORD_NS)
-        if checked_node is None:
-            return False
+        if checked_node is not None:
+            value = checked_node.get(f"{{{WORD_NS['w']}}}val")
+            return value not in {"0", "false", "False"}
 
-        value = checked_node.get(f"{{{WORD_NS['w']}}}val")
-        return value not in {"0", "false", "False"}
+        default_node = checkbox.find("./w:default", WORD_NS)
+        if default_node is not None:
+            value = default_node.get(f"{{{WORD_NS['w']}}}val")
+            return value not in {"0", "false", "False"}
+
+        return False
 
     def _convert_doc_to_docx(self, input_path: Path, output_path: Path) -> None:
         input_value = self._ps_quote(str(input_path.resolve()))
