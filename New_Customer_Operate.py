@@ -6,7 +6,17 @@ from __future__ import annotations
 import os
 import sys
 
-from PyQt5.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+from PyQt5.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 from New_Customer_Operate_Ui import Ui_MainWindow
 from auto_updater import AutoUpdater
@@ -32,11 +42,43 @@ class MainWindow(QMainWindow):
         self.current_parsed_form = None
         self.current_mapped_customer = None
 
+        self.version_label: QLabel | None = None
+        self.update_button: QPushButton | None = None
+
+        self._setup_window()
+        self._setup_status_bar()
         self._connect_signals()
         self._first_launch_check()
         self._load_default_import_path()
 
-    def _connect_signals(self):
+    def _setup_window(self) -> None:
+        self.setWindowTitle("New Customer Operation")
+        self.ui.statusbar.showMessage("就绪", 3000)
+
+    def _setup_status_bar(self) -> None:
+        container = QWidget(self)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.version_label = QLabel(
+            f"版本 v{self.updater.config.current_version}",
+            container,
+        )
+        self.version_label.setStyleSheet("color: #666;")
+
+        self.update_button = QPushButton("Update", container)
+        self.update_button.setFixedHeight(22)
+        self.update_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.update_button.setStyleSheet(
+            "QPushButton { padding: 2px 10px; }"
+        )
+
+        layout.addWidget(self.version_label)
+        layout.addWidget(self.update_button)
+        self.ui.statusbar.addPermanentWidget(container)
+
+    def _connect_signals(self) -> None:
         self.ui.actionExport.triggered.connect(self.export_config)
         self.ui.actionImport.triggered.connect(self.import_config)
         self.ui.actionUpdate.triggered.connect(self.check_update)
@@ -45,31 +87,33 @@ class MainWindow(QMainWindow):
         self.ui.actionHelp.triggered.connect(self.show_help)
         self.ui.pushButton.clicked.connect(self.load_word_file)
         self.ui.pushButton_2.clicked.connect(self.submit_to_odm)
+        if self.update_button is not None:
+            self.update_button.clicked.connect(self.check_update)
 
-    def _first_launch_check(self):
+    def _first_launch_check(self) -> None:
         preview = self.config_mgr.get_sync_preview()
         if not preview["needs_sync"]:
             return
 
         reply = QMessageBox.question(
             self,
-            "配置更新确认",
+            "配置同步确认",
             preview["message"],
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes,
         )
         if reply != QMessageBox.Yes:
-            self.ui.statusbar.showMessage("已取消本次配置更新", 5000)
+            self.ui.statusbar.showMessage("已取消本次配置同步", 5000)
             return
 
         self.config_mgr.sync_config()
         QMessageBox.information(
             self,
-            "配置更新完成",
+            "配置同步完成",
             f"配置文件已更新：\n{self.config_mgr.config_path}",
         )
 
-    def _load_default_import_path(self):
+    def _load_default_import_path(self) -> None:
         try:
             config = self.config_mgr.read_config()
         except FileNotFoundError:
@@ -79,22 +123,26 @@ class MainWindow(QMainWindow):
         if file_path:
             self.ui.lineEdit.setText(file_path)
 
-    def export_config(self):
+    def export_config(self) -> None:
         try:
             self.config_mgr.create_default_config()
             self.ui.statusbar.showMessage(
-                f"配置文件已重新生成：{self.config_mgr.config_path}",
+                f"配置文件已生成：{self.config_mgr.config_path}",
                 5000,
             )
             QMessageBox.information(
                 self,
                 "导出成功",
-                f"已强制生成配置文件：\n{self.config_mgr.config_path}",
+                f"已生成配置文件：\n{self.config_mgr.config_path}",
             )
         except Exception as exc:
-            QMessageBox.critical(self, "导出失败", f"生成配置文件失败：{exc}")
+            QMessageBox.critical(
+                self,
+                "导出失败",
+                f"生成配置文件失败：\n{exc}",
+            )
 
-    def import_config(self):
+    def import_config(self) -> None:
         try:
             config = self.config_mgr.read_config()
             lines = [f"{key}: {value}" for key, value in config.items()]
@@ -112,17 +160,30 @@ class MainWindow(QMainWindow):
                 f"预期路径：{self.config_mgr.config_path}",
             )
         except Exception as exc:
-            QMessageBox.critical(self, "导入失败", f"读取配置文件失败：{exc}")
+            QMessageBox.critical(
+                self,
+                "导入失败",
+                f"读取配置文件失败：\n{exc}",
+            )
 
-    def check_update(self):
+    def check_update(self) -> None:
         try:
+            self.ui.statusbar.showMessage("正在检查更新...", 3000)
             self.updater.check_for_updates_with_ui(force_check=True)
         except Exception as exc:
-            QMessageBox.critical(self, "更新检查失败", f"检查更新时出错：{exc}")
+            QMessageBox.critical(
+                self,
+                "更新检查失败",
+                f"检查更新时出错：\n{exc}",
+            )
 
-    def load_word_file(self):
+    def load_word_file(self) -> None:
         current_path = self.ui.lineEdit.text().strip()
-        start_dir = os.path.dirname(current_path) if current_path and os.path.exists(current_path) else os.getcwd()
+        if current_path and os.path.exists(current_path):
+            start_dir = os.path.dirname(current_path)
+        else:
+            start_dir = os.getcwd()
+
         selected_path, _ = QFileDialog.getOpenFileName(
             self,
             "选择客户 Word 文件",
@@ -135,23 +196,28 @@ class MainWindow(QMainWindow):
         selected_path = os.path.abspath(selected_path)
         self.current_parsed_form = None
         self.current_mapped_customer = None
+
         self.ui.lineEdit.setText(selected_path)
-        self.config_mgr.set_config_value("Files_Import_URL", selected_path)
         self.ui.textBrowser.setText(selected_path)
+        self.config_mgr.set_config_value("Files_Import_URL", selected_path)
         self.ui.statusbar.showMessage(f"已选择文件：{selected_path}", 5000)
 
-    def submit_to_odm(self):
+    def submit_to_odm(self) -> None:
         file_path = self.ui.lineEdit.text().strip()
         if not file_path:
-            QMessageBox.warning(self, "缺少文件", "请先选择或读取 Word 文件。")
+            QMessageBox.warning(self, "缺少文件", "请先选择 Word 文件。")
             return
+
         if not os.path.exists(file_path):
-            QMessageBox.warning(self, "文件不存在", f"请选择有效的 Word 文件：\n{file_path}")
+            QMessageBox.warning(
+                self,
+                "文件不存在",
+                f"请选择有效的 Word 文件：\n{file_path}",
+            )
             return
 
         if not self.current_parsed_form or self.current_parsed_form["source_file"] != file_path:
-            self._parse_file(file_path)
-            if not self.current_parsed_form:
+            if not self._parse_file(file_path):
                 return
 
         config = self.config_mgr.get_config()
@@ -168,6 +234,7 @@ class MainWindow(QMainWindow):
             self.current_mapped_customer["customer_data"],
             invoice_id=0,
         )
+
         warnings = list(self.current_mapped_customer["warnings"]) + payload_warnings
         preview_text = self.customer_mapper.format_preview(
             self.current_parsed_form,
@@ -178,7 +245,7 @@ class MainWindow(QMainWindow):
         self.ui.textBrowser.setText(preview_text)
 
         if payload_warnings:
-            QMessageBox.warning(self, "创建前检查失败", "\n".join(payload_warnings))
+            QMessageBox.warning(self, "提交前检查失败", "\n".join(payload_warnings))
             return
 
         environment = config.get("Environment", "test").strip().lower()
@@ -187,8 +254,8 @@ class MainWindow(QMainWindow):
             "确认提交到 ODM",
             "将执行以下操作：\n"
             f"1. 登录 {environment} 环境\n"
-            "2. 创建 customer/invoice\n"
-            "3. 用返回的 invoiceId 创建联系人\n\n"
+            "2. 创建 customer / invoice\n"
+            "3. 使用返回的 invoiceId 创建联系人\n\n"
             "是否继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
@@ -200,6 +267,7 @@ class MainWindow(QMainWindow):
         try:
             client = OdmApiClient(config)
             client.login()
+
             invoice_result = client.create_invoice(invoice_payload)
             invoice_id = invoice_result["id"]
 
@@ -211,33 +279,44 @@ class MainWindow(QMainWindow):
                 created_contacts = len(contact_payloads)
 
             result_lines = [
-                f"提交成功，环境: {environment}",
+                f"提交成功，环境：{environment}",
                 f"invoiceId: {invoice_id}",
-                f"联系人数量: {created_contacts}",
+                f"联系人数量：{created_contacts}",
                 "",
                 "Invoice result:",
                 str(invoice_result),
             ]
             if warnings:
-                result_lines.extend(["", "Warnings:", *warnings])
+                result_lines.extend(["", "Warnings:"] + warnings)
 
             self.ui.textBrowser.setText("\n".join(result_lines))
-            self.ui.statusbar.showMessage(f"ODM 创建成功，invoiceId={invoice_id}", 5000)
+            self.ui.statusbar.showMessage(
+                f"ODM 创建成功，invoiceId={invoice_id}",
+                5000,
+            )
             QMessageBox.information(
                 self,
                 "提交成功",
-                f"客户已创建，invoiceId={invoice_id}\n联系人数量={created_contacts}",
+                f"客户已创建，invoiceId={invoice_id}\n联系人数量：{created_contacts}",
             )
         except Exception as exc:
-            QMessageBox.critical(self, "提交失败", f"提交到 ODM 失败：{exc}")
+            QMessageBox.critical(
+                self,
+                "提交失败",
+                f"提交到 ODM 失败：\n{exc}",
+            )
 
-    def _parse_file(self, file_path: str):
+    def _parse_file(self, file_path: str) -> bool:
         try:
             parsed_form = self.word_parser.parse(file_path)
             mapped_customer = self.customer_mapper.map_to_customer_data(parsed_form)
         except Exception as exc:
-            QMessageBox.critical(self, "读取失败", f"读取 Word 文件失败：{exc}")
-            return
+            QMessageBox.critical(
+                self,
+                "读取失败",
+                f"读取 Word 文件失败：\n{exc}",
+            )
+            return False
 
         self.current_parsed_form = parsed_form
         self.current_mapped_customer = mapped_customer
@@ -247,24 +326,35 @@ class MainWindow(QMainWindow):
             self.customer_mapper.format_preview(parsed_form, mapped_customer)
         )
         self.ui.statusbar.showMessage(f"已读取文件：{file_path}", 5000)
+        return True
 
-    def show_author(self):
-        QMessageBox.about(self, "Author", "New Customer Operation\n\nAuthor: chen, frank")
+    def show_author(self) -> None:
+        QMessageBox.about(
+            self,
+            "Author",
+            "New Customer Operation\n\nAuthor: chen, frank",
+        )
 
-    def show_help(self):
+    def show_help(self) -> None:
         QMessageBox.about(
             self,
             "Help",
             "使用说明：\n\n"
-            "1. 获取文件 - 选择 .docx/.doc 文件并回填绝对路径\n"
-            "2. 填入ODM - 读取 Word、解析字段、登录接口并创建 customer + contact\n"
-            "3. Export - 生成配置文件\n"
-            "4. Import - 读取配置文件\n"
-            "5. Update - 检查软件更新",
+            "1. 获取文件：选择 .docx / .doc 文件，并回填绝对路径。\n"
+            "2. 填入 ODM：读取 Word、解析字段，并提交 customer / contact。\n"
+            "3. Export：生成配置文件。\n"
+            "4. Import：读取配置文件。\n"
+            "5. Update：检查新版本，确认后下载并执行更新。",
         )
 
+    def closeEvent(self, event) -> None:  # noqa: N802
+        try:
+            self.updater.cleanup()
+        finally:
+            super().closeEvent(event)
 
-def main():
+
+def main() -> None:
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

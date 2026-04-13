@@ -5,17 +5,17 @@
 """
 
 # 应用配置
-SOFTWARE_ID: str = "Sap_Hour_Operate_tool"  # 软件唯一标识，用于多软件状态隔离
-APP_NAME: str = "Sap_Hour_Operate_theme"
-APP_EXECUTABLE: str = "Sap_Hour_Operate_theme.exe"
+SOFTWARE_ID: str = "New_Customer_Operate_tool"  # 软件唯一标识，用于多软件状态隔离
+APP_NAME: str = "New_Customer_Operate"
+APP_EXECUTABLE: str = "New_Customer_Operate.exe"
 
 # GitHub仓库配置
 GITHUB_OWNER: str = "chen-huai"
-GITHUB_REPO: str = "Sap_Hour_Operation"
+GITHUB_REPO: str = "New_Customer_Operate"
 GITHUB_API_BASE: str = "https://api.github.com"
 
 # 版本配置
-CURRENT_VERSION: str = "2.0.2"
+CURRENT_VERSION: str = "1.0.0"
 UPDATE_CHECK_INTERVAL_DAYS: int = 30
 AUTO_CHECK_ENABLED: bool = True
 
