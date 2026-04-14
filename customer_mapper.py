@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections import OrderedDict
 
@@ -36,7 +35,7 @@ class CustomerMapper:
         if not customer_data["branch_codes"]:
             warnings.append("未检测到 branch/site 勾选项。")
         if not customer_data["customer_category"]:
-            warnings.append("Customer category 未检测到勾选项。")
+            warnings.append("未检测到 Customer category 勾选项。")
 
         if len(tables) > 1:
             rows = tables[1]["rows"]
@@ -83,7 +82,7 @@ class CustomerMapper:
                 customer_data["payment_term"] = self._first_checked_checkbox(payment_options)
                 customer_data["payment_term_raw"] = payment_row[1]["text"] if len(payment_row) > 1 else ""
                 if not customer_data["payment_term"]:
-                    warnings.append("Payment term 未检测到勾选项，保留原始文本。")
+                    warnings.append("未检测到 Payment term 勾选项，已保留原始文本。")
             else:
                 customer_data["payment_term"] = ""
                 customer_data["payment_term_raw"] = ""
@@ -133,7 +132,7 @@ class CustomerMapper:
                     invoice_options.extend(cell["checkbox_options"])
             customer_data["invoice_type"] = self._first_checked_checkbox(invoice_options)
             if not customer_data["invoice_type"]:
-                warnings.append("Invoice type 未检测到勾选项。")
+                warnings.append("未检测到 Invoice type 勾选项。")
 
             table6_map = self._two_column_table_to_map(rows[1:])
             customer_data["vat_no"] = table6_map.get("VAT No.(纳税人识别号)", "")
@@ -286,40 +285,69 @@ class CustomerMapper:
         applicant_payload: dict | None = None,
         invoice_payload: dict | None = None,
         contact_payloads: list | None = None,
+        extra_warnings: list[str] | None = None,
     ) -> str:
-        """Build a readable preview for the UI."""
+        """Build a concise preview for the UI."""
+        customer_data = mapped["customer_data"]
         lines = [
             f"文件: {parsed_form['source_name']}",
-            "",
-            "ODM customer_data:",
-            json.dumps(mapped["customer_data"], ensure_ascii=False, indent=2),
+            f"分公司: {self._display_value(' / '.join(customer_data.get('branch_codes', [])))}",
+            f"客户类别: {self._display_value(customer_data.get('customer_category', ''))}",
+            f"客户名称: {self._format_bilingual_name(customer_data)}",
+            f"订单金额: {self._format_amount(customer_data)}",
+            f"付款条件: {self._display_value(customer_data.get('payment_term') or customer_data.get('payment_term_raw', ''))}",
+            f"发票类型: {self._display_value(customer_data.get('invoice_type', ''))}",
+            f"联系地址: {self._display_value(self._primary_address(customer_data))}",
+            f"主要联系人: {self._format_primary_contact(customer_data)}",
+            f"联系人数量: {len(customer_data.get('contacts', []))}",
         ]
+
         if applicant_payload is not None:
             lines.extend(
                 [
                     "",
-                    "Applicant create payload:",
-                    json.dumps(applicant_payload, ensure_ascii=False, indent=2),
+                    "提交摘要:",
+                    f"Applicant: {self._display_value(applicant_payload.get('name', ''))}",
                 ]
             )
         if invoice_payload is not None:
             lines.extend(
                 [
-                    "",
-                    "Invoice create payload:",
-                    json.dumps(invoice_payload, ensure_ascii=False, indent=2),
+                    f"ODM名称: {self._display_value(invoice_payload.get('payerName', ''))}",
+                    f"英文名称: {self._display_value(invoice_payload.get('payerNameEn', ''))}",
+                    f"站点ID: {self._display_value(', '.join(str(item) for item in invoice_payload.get('siteIds', [])))}",
+                    f"默认币种: {self._display_value(invoice_payload.get('defaultCurrency', ''))}",
                 ]
             )
         if contact_payloads is not None:
-            lines.extend(
-                [
-                    "",
-                    "Contact payloads:",
-                    json.dumps(contact_payloads, ensure_ascii=False, indent=2),
-                ]
-            )
-        if mapped["warnings"]:
-            lines.extend(["", "Warnings:", *[f"- {warning}" for warning in mapped["warnings"]]])
+            lines.append(f"待建联系人: {len(contact_payloads)}")
+
+        warnings = list(mapped["warnings"])
+        if extra_warnings:
+            warnings.extend(extra_warnings)
+        if warnings:
+            lines.extend(["", "提醒:"])
+            lines.extend(f"- {warning}" for warning in warnings)
+        return "\n".join(lines)
+
+    def format_submit_result(
+        self,
+        customer_data: dict,
+        environment: str,
+        invoice_id: int,
+        created_contacts: int,
+        warnings: list[str] | None = None,
+    ) -> str:
+        lines = [
+            "提交结果:",
+            f"环境: {environment}",
+            f"客户名称: {self._format_bilingual_name(customer_data)}",
+            f"invoiceId: {invoice_id}",
+            f"联系人数量: {created_contacts}",
+        ]
+        if warnings:
+            lines.extend(["", "提醒:"])
+            lines.extend(f"- {warning}" for warning in warnings)
         return "\n".join(lines)
 
     def _extract_contacts(self, rows: list) -> list[dict]:
@@ -350,7 +378,7 @@ class CustomerMapper:
         vat_no = customer_data.get("vat_no", "")
         is_foreign_customer = not customer_data.get("customer_name_cn", "").strip()
 
-        if "不需要发票" in vat_no or "无需发票" in vat_no:
+        if "不需要发票" in vat_no or "无须发票" in vat_no:
             return self.INVOICE_TYPE_NO_NEED
         if label == "专票":
             return self.INVOICE_TYPE_SPECIAL
@@ -372,12 +400,53 @@ class CustomerMapper:
         text = (value or "").strip()
         if not text:
             return ""
-        text = re.sub(r"[（(]\s*(不需要发票|无需发票)\s*[）)]", "", text)
+        text = re.sub(r"[，,]?\s*(不需要发票|无须发票)\s*[，,]?", "", text)
         return text.strip()
 
     def _clean_company_name(self, value: str) -> str:
         text = (value or "").strip()
         return re.sub(r"(?<!\d)[123]$", "", text).strip()
+
+    def _display_value(self, value: str) -> str:
+        text = (value or "").strip()
+        return text or "-"
+
+    def _format_bilingual_name(self, customer_data: dict) -> str:
+        payer_name_cn = (customer_data.get("customer_name_cn") or "").strip()
+        payer_name_en = (customer_data.get("customer_name_en") or "").strip()
+        if payer_name_cn and payer_name_en:
+            return f"{payer_name_cn} / {payer_name_en}"
+        return self._display_value(payer_name_cn or payer_name_en)
+
+    def _format_amount(self, customer_data: dict) -> str:
+        amount = (customer_data.get("new_order_value") or "").strip()
+        currency = (customer_data.get("currency") or "").strip()
+        if amount and currency:
+            return f"{amount} {currency}"
+        return self._display_value(amount or currency)
+
+    def _primary_address(self, customer_data: dict) -> str:
+        return (
+            customer_data.get("delivery_address_cn")
+            or customer_data.get("contact_address_cn")
+            or customer_data.get("contact_address_en")
+            or ""
+        )
+
+    def _format_primary_contact(self, customer_data: dict) -> str:
+        contact = (customer_data.get("contact_person") or "").strip()
+        phone = (
+            customer_data.get("mobile")
+            or customer_data.get("direct_line")
+            or customer_data.get("telephone")
+            or ""
+        ).strip()
+        email = (customer_data.get("email") or "").strip()
+
+        parts = [item for item in [contact, phone, email] if item]
+        if not parts:
+            return "-"
+        return " / ".join(parts)
 
     def _split_bank_info(self, bank_info: str) -> tuple[str, str]:
         text = (bank_info or "").strip()

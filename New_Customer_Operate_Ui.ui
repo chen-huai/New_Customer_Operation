@@ -26,7 +26,7 @@
    <string>SAP</string>
   </property>
   <property name="windowIcon">
-   <iconset>
+   <iconset resource="chicon_rc.qrc">
     <normaloff>:/ch.ico</normaloff>:/ch.ico</iconset>
   </property>
   <widget class="QWidget" name="centralwidget">
@@ -47,6 +47,13 @@
            <string>操作</string>
           </property>
           <layout class="QGridLayout" name="gridLayout_2">
+           <item row="0" column="3">
+            <widget class="QPushButton" name="pushButton_2">
+             <property name="text">
+              <string>填入ODM</string>
+             </property>
+            </widget>
+           </item>
            <item row="0" column="0">
             <widget class="QPushButton" name="pushButton">
              <property name="text">
@@ -58,9 +65,9 @@
             <widget class="QLineEdit" name="lineEdit"/>
            </item>
            <item row="0" column="2">
-            <widget class="QPushButton" name="pushButton_2">
+            <widget class="QPushButton" name="pushButton_3">
              <property name="text">
-              <string>填入ODM</string>
+              <string>清空</string>
              </property>
             </widget>
            </item>
@@ -157,7 +164,7 @@
   </action>
  </widget>
  <resources>
-  <include location="chicon.qrc"/>
+  <include location="chicon_rc.qrc"/>
  </resources>
  <connections/>
 </ui>

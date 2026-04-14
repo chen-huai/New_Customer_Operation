@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
 
         self.current_parsed_form = None
         self.current_mapped_customer = None
+        self._last_info_file_key: str | None = None
 
         self.version_label: QLabel | None = None
         self.update_button: QPushButton | None = None
@@ -127,6 +128,7 @@ class MainWindow(QMainWindow):
         self.ui.actionHelp.triggered.connect(self.show_help)
         self.ui.pushButton.clicked.connect(self.load_word_file)
         self.ui.pushButton_2.clicked.connect(self.submit_to_odm)
+        self.ui.pushButton_3.clicked.connect(self.clear_current_data)
         if self.update_button is not None:
             self.update_button.clicked.connect(self._on_check_update_clicked)
         if self.toggle_theme_action is not None:
@@ -239,6 +241,49 @@ class MainWindow(QMainWindow):
         if file_path:
             self.ui.lineEdit.setText(file_path)
 
+    def _append_info_text(self, text: str, file_key: str | None = None) -> None:
+        text = text.strip()
+        if not text:
+            return
+
+        existing = self.ui.textBrowser.toPlainText().strip()
+        if existing:
+            if file_key and self._last_info_file_key and file_key != self._last_info_file_key:
+                separator = "\n\n" + ("#" * 56) + "\n"
+            else:
+                separator = "\n\n" + ("-" * 32) + "\n"
+            combined = f"{existing}{separator}{text}"
+        else:
+            combined = text
+        self.ui.textBrowser.setPlainText(combined)
+        if file_key:
+            self._last_info_file_key = file_key
+
+    def _get_current_customer_name(self) -> str:
+        if not self.current_mapped_customer:
+            return "-"
+
+        customer_data = self.current_mapped_customer["customer_data"]
+        name_cn = (customer_data.get("customer_name_cn") or "").strip()
+        name_en = (customer_data.get("customer_name_en") or "").strip()
+
+        if name_cn and name_en:
+            return f"{name_cn} / {name_en}"
+        return name_cn or name_en or "-"
+
+    def _is_duplicate_error(self, message: str) -> bool:
+        lowered = (message or "").lower()
+        keywords = ["已存在", "重复", "duplicate", "already exists", "exist"]
+        return any(keyword in lowered or keyword in (message or "") for keyword in keywords)
+
+    def clear_current_data(self) -> None:
+        self.current_parsed_form = None
+        self.current_mapped_customer = None
+        self._last_info_file_key = None
+        self.ui.lineEdit.clear()
+        self.ui.textBrowser.clear()
+        self.ui.statusbar.showMessage("已清空当前数据", 3000)
+
     def export_config(self) -> None:
         try:
             self.config_mgr.create_default_config()
@@ -306,7 +351,7 @@ class MainWindow(QMainWindow):
         self.current_mapped_customer = None
 
         self.ui.lineEdit.setText(selected_path)
-        self.ui.textBrowser.setText(selected_path)
+        self._append_info_text(f"已选择文件:\n{selected_path}", file_key=selected_path)
         self.config_mgr.set_config_value("Files_Import_URL", selected_path)
         self.ui.statusbar.showMessage(f"已选择文件：{selected_path}", 5000)
 
@@ -353,8 +398,9 @@ class MainWindow(QMainWindow):
             applicant_payload=applicant_payload,
             invoice_payload=invoice_payload,
             contact_payloads=contact_payloads,
+            extra_warnings=applicant_warnings + payload_warnings,
         )
-        self.ui.textBrowser.setText(preview_text)
+        self._append_info_text(preview_text, file_key=file_path)
 
         blocking_warnings = applicant_warnings + payload_warnings
         if blocking_warnings:
@@ -393,19 +439,16 @@ class MainWindow(QMainWindow):
                 client.add_contacts(contact_payloads)
                 created_contacts = len(contact_payloads)
 
-            result_lines = [
-                f"提交成功，环境：{environment}",
-                f"applicant: {applicant_payload.get('name', '')}",
-                f"invoiceId: {invoice_id}",
-                f"联系人数量：{created_contacts}",
-                "",
-                "Invoice result:",
-                str(invoice_result),
-            ]
-            if warnings:
-                result_lines.extend(["", "Warnings:"] + warnings)
-
-            self.ui.textBrowser.setText("\n".join(result_lines))
+            self._append_info_text(
+                self.customer_mapper.format_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    invoice_id=invoice_id,
+                    created_contacts=created_contacts,
+                    warnings=warnings,
+                ),
+                file_key=file_path,
+            )
             self.ui.statusbar.showMessage(
                 f"ODM 创建成功，invoiceId={invoice_id}",
                 5000,
@@ -418,11 +461,21 @@ class MainWindow(QMainWindow):
                 f"联系人数量：{created_contacts}",
             )
         except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "提交失败",
-                f"提交到 ODM 失败：\n{exc}",
-            )
+            error_message = str(exc)
+            if self._is_duplicate_error(error_message):
+                QMessageBox.warning(
+                    self,
+                    "记录已存在",
+                    "ODM 中已存在相同客户记录。\n"
+                    f"客户名称: {self._get_current_customer_name()}\n\n"
+                    f"接口信息:\n{error_message}",
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "提交失败",
+                    f"提交到 ODM 失败：\n{error_message}",
+                )
 
     def _parse_file(self, file_path: str) -> bool:
         try:
@@ -440,8 +493,9 @@ class MainWindow(QMainWindow):
         self.current_mapped_customer = mapped_customer
         self.ui.lineEdit.setText(file_path)
         self.config_mgr.set_config_value("Files_Import_URL", file_path)
-        self.ui.textBrowser.setText(
-            self.customer_mapper.format_preview(parsed_form, mapped_customer)
+        self._append_info_text(
+            self.customer_mapper.format_preview(parsed_form, mapped_customer),
+            file_key=file_path,
         )
         self.ui.statusbar.showMessage(f"已读取文件：{file_path}", 5000)
         return True
