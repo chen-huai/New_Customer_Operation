@@ -103,7 +103,7 @@ class GitHubClient:
             if e.response.status_code == 403:
                 raise NetworkError("API请求频率限制，请稍后重试")
             elif e.response.status_code == 404:
-                raise NetworkError("仓库或Release不存在")
+                raise NetworkError("仓库或Release不存在，或当前凭证无权访问私有仓库")
             elif e.response.status_code == 422:
                 raise NetworkError("请求参数错误")
             else:
@@ -119,17 +119,35 @@ class GitHubClient:
         获取最新的Release信息
         :return: Release信息字典，失败返回None
         """
-        data = self._make_request(GITHUB_LATEST_RELEASE_URL)
-        if data:
-            return {
-                'tag_name': data.get('tag_name', ''),
-                'name': data.get('name', ''),
-                'body': data.get('body', ''),
-                'published_at': data.get('published_at', ''),
-                'prerelease': data.get('prerelease', False),
-                'assets': data.get('assets', [])
-            }
-        return None
+        try:
+            data = self._make_request(GITHUB_LATEST_RELEASE_URL)
+            if data:
+                return self._normalize_release(data)
+            return None
+        except NetworkError as exc:
+            if "仓库或Release不存在" not in str(exc):
+                raise
+
+            repo_url = GITHUB_LATEST_RELEASE_URL.replace('/releases/latest', '')
+            try:
+                self._make_request(repo_url)
+            except NetworkError as repo_exc:
+                if "仓库或Release不存在" in str(repo_exc):
+                    raise VersionCheckError(
+                        "GitHub 仓库不存在，或当前网络/权限无法访问仓库。"
+                        f"\n仓库地址: {repo_url}"
+                        "\n如果该仓库是私有仓库，请设置环境变量 GITHUB_TOKEN 或 GH_TOKEN 后重试。"
+                    ) from repo_exc
+                raise
+
+            releases = self.get_all_releases()
+            if releases:
+                return releases[0]
+
+            raise VersionCheckError(
+                "GitHub 仓库存在，但还没有发布任何 Release。"
+                "请先在仓库的 Releases 页面创建版本发布。"
+            ) from exc
 
     def get_release_info(self, version: str) -> Optional[Dict]:
         """
@@ -146,14 +164,7 @@ class GitHubClient:
             data = self._make_request(url)
 
             if data:
-                return {
-                    'tag_name': data.get('tag_name', ''),
-                    'name': data.get('name', ''),
-                    'body': data.get('body', ''),
-                    'published_at': data.get('published_at', ''),
-                    'prerelease': data.get('prerelease', False),
-                    'assets': data.get('assets', [])
-                }
+                return self._normalize_release(data)
             return None
         except Exception as e:
             raise VersionCheckError(f"获取Release信息失败: {str(e)}")
@@ -166,17 +177,7 @@ class GitHubClient:
         try:
             data = self._make_request(GITHUB_RELEASES_URL)
             if data:
-                releases = []
-                for release in data:
-                    releases.append({
-                        'tag_name': release.get('tag_name', ''),
-                        'name': release.get('name', ''),
-                        'body': release.get('body', ''),
-                        'published_at': release.get('published_at', ''),
-                        'prerelease': release.get('prerelease', False),
-                        'assets': release.get('assets', [])
-                    })
-                return releases
+                return [self._normalize_release(release) for release in data]
             return []
         except Exception as e:
             raise VersionCheckError(f"获取Release列表失败: {str(e)}")
@@ -202,6 +203,17 @@ class GitHubClient:
             return None
         except Exception as e:
             raise VersionCheckError(f"获取下载链接失败: {str(e)}")
+
+    def _normalize_release(self, data: Dict) -> Dict:
+        """Normalize GitHub release payload."""
+        return {
+            'tag_name': data.get('tag_name', ''),
+            'name': data.get('name', ''),
+            'body': data.get('body', ''),
+            'published_at': data.get('published_at', ''),
+            'prerelease': data.get('prerelease', False),
+            'assets': data.get('assets', []),
+        }
 
     def get_latest_download_url(self) -> Optional[str]:
         """

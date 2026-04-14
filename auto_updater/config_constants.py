@@ -4,6 +4,8 @@
 将JSON配置信息转换为Python常量，消除外部文件依赖
 """
 
+import os
+
 # 应用配置
 SOFTWARE_ID: str = "New_Customer_Operate_tool"  # 软件唯一标识，用于多软件状态隔离
 APP_NAME: str = "New_Customer_Operate"
@@ -11,8 +13,9 @@ APP_EXECUTABLE: str = "New_Customer_Operate.exe"
 
 # GitHub仓库配置
 GITHUB_OWNER: str = "chen-huai"
-GITHUB_REPO: str = "New_Customer_Operate"
+GITHUB_REPO: str = "New_Customer_Operation"
 GITHUB_API_BASE: str = "https://api.github.com"
+GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN") or ""
 
 # 版本配置
 CURRENT_VERSION: str = "1.0.2"
@@ -52,6 +55,9 @@ class NetworkConfig:
         "Connection": "keep-alive",
         "Accept-Encoding": "gzip, deflate"
     }
+
+    if GITHUB_TOKEN:
+        HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 
     # 连接池配置
     CONNECTION_POOL = {

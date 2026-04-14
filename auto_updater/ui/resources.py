@@ -84,8 +84,8 @@ class UpdateUIText:
     RELEASE_NOTES_MESSAGE = "版本"
 
     # GitHub
-    GITHUB_LINK_TEXT = "GitHub: chen-huai/New_Customer_Operate"
-    GITHUB_URL = "https://github.com/chen-huai/New_Customer_Operate"
+    GITHUB_LINK_TEXT = "GitHub: chen-huai/New_Customer_Operation"
+    GITHUB_URL = "https://github.com/chen-huai/New_Customer_Operation"
     OPEN_GITHUB_ERROR_MESSAGE = "无法打开GitHub页面"
 
     # 重启
