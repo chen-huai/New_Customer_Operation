@@ -12,11 +12,12 @@ class UpdateUIText:
     """
 
     # 通用文本
-    APP_NAME = "PDF重命名工具"
+    APP_NAME = "New Customer Operation"
     VERSION_PREFIX = "版本 "
     ERROR_TITLE = "错误"
     INFO_TITLE = "信息"
     WARNING_TITLE = "警告"
+    UPDATE_UNAVAILABLE_TITLE = "更新功能不可用"
 
     # 菜单相关
     HELP_MENU_TITLE = "帮助(H)"
@@ -61,7 +62,7 @@ class UpdateUIText:
     UPDATE_CANCELLED_MESSAGE = "暂时不更新"
 
     # 对话框
-    ABOUT_DIALOG_TITLE = "关于 PDF重命名工具"
+    ABOUT_DIALOG_TITLE = "关于 New Customer Operation"
     LOADING_VERSION_MESSAGE = "正在加载版本信息..."
     CHECKING_UPDATE_STATUS_MESSAGE = "正在检查更新状态..."
     UPDATE_UNAVAILABLE_MESSAGE = "自动更新功能不可用"
@@ -83,8 +84,8 @@ class UpdateUIText:
     RELEASE_NOTES_MESSAGE = "版本"
 
     # GitHub
-    GITHUB_LINK_TEXT = "GitHub: chen-huai/Temu_PDF_Rename_APP"
-    GITHUB_URL = "https://github.com/chen-huai/Temu_PDF_Rename_APP"
+    GITHUB_LINK_TEXT = "GitHub: chen-huai/New_Customer_Operate"
+    GITHUB_URL = "https://github.com/chen-huai/New_Customer_Operate"
     OPEN_GITHUB_ERROR_MESSAGE = "无法打开GitHub页面"
 
     # 重启

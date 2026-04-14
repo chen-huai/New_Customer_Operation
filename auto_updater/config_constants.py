@@ -15,7 +15,7 @@ GITHUB_REPO: str = "New_Customer_Operate"
 GITHUB_API_BASE: str = "https://api.github.com"
 
 # 版本配置
-CURRENT_VERSION: str = "1.0.1"
+CURRENT_VERSION: str = "1.0.2"
 UPDATE_CHECK_INTERVAL_DAYS: int = 30
 AUTO_CHECK_ENABLED: bool = True
 
@@ -48,7 +48,7 @@ class NetworkConfig:
     # 请求头配置
     HEADERS = {
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "PDF-Rename-Tool-Updater/2.0.0",
+        "User-Agent": "New-Customer-Operate-Updater/1.0.1",
         "Connection": "keep-alive",
         "Accept-Encoding": "gzip, deflate"
     }
