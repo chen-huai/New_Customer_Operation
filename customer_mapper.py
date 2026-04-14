@@ -54,16 +54,16 @@ class CustomerMapper:
                 )
             )
             customer_data["customer_name_cn"] = self._clean_company_name(
-                self._get_nth_row_value_by_prefix(rows, "(CH)", 1)
+                self._get_customer_name_cn(rows)
             )
             customer_data["contact_address_en"] = self._get_first_matching_value(
                 rows,
                 ["Contact Address (EN)", "Contact Address (EN) 客户公司英文地址"],
             )
-            customer_data["contact_address_cn"] = self._get_nth_row_value_by_prefix(rows, "(CH)", 2)
+            customer_data["contact_address_cn"] = self._get_contact_address_cn(rows)
             customer_data["delivery_address_cn"] = self._get_first_matching_value(
                 rows,
-                ["客户收件地址(CH)"],
+                ["客户收件地址(CH)", "Delivery Address (CH)"],
             )
 
             postal_row = self._find_row(rows, "Postal code")
@@ -395,6 +395,34 @@ class CustomerMapper:
             if row and len(row) > 1:
                 return row[1]["text"]
         return ""
+
+    def _get_customer_name_cn(self, rows: list) -> str:
+        value = self._get_first_matching_value(
+            rows,
+            [
+                "Customer Name (CH)",
+                "Customer Name(CH)",
+                "(CH) 客户公司中文名称",
+                "(CH)客户公司中文名称",
+            ],
+        )
+        if value:
+            return value
+        return self._get_nth_row_value_by_prefix(rows, "(CH)", 1)
+
+    def _get_contact_address_cn(self, rows: list) -> str:
+        value = self._get_first_matching_value(
+            rows,
+            [
+                "Contact Address (CH)",
+                "Contact Address(CH)",
+                "(CH) 客户公司中文地址",
+                "(CH)客户公司中文地址",
+            ],
+        )
+        if value:
+            return value
+        return self._get_nth_row_value_by_prefix(rows, "(CH)", 2)
 
     def _get_nth_row_value_by_prefix(self, rows: list, prefix: str, occurrence: int) -> str:
         count = 0
