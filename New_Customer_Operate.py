@@ -9,6 +9,7 @@ import sys
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QFileDialog,
     QHBoxLayout,
@@ -26,13 +27,14 @@ from auto_updater.config_constants import CURRENT_VERSION
 from config_manager import ConfigManager
 from customer_mapper import CustomerMapper
 from odm_api_client import OdmApiClient
+from theme_manager_theme import ThemeManager
 from word_form_parser import WordFormParser
 
 
 class MainWindow(QMainWindow):
     """Main window."""
 
-    def __init__(self):
+    def __init__(self, theme_manager: ThemeManager | None = None):
         super().__init__()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
@@ -43,14 +45,17 @@ class MainWindow(QMainWindow):
         self.updater: AutoUpdater | None = None
         self.word_parser = WordFormParser()
         self.customer_mapper = CustomerMapper()
+        self.theme_manager = theme_manager
 
         self.current_parsed_form = None
         self.current_mapped_customer = None
 
         self.version_label: QLabel | None = None
         self.update_button: QPushButton | None = None
+        self.toggle_theme_action: QAction | None = None
 
         self._setup_window()
+        self._setup_theme_action()
         self._setup_auto_update()
         self._setup_status_bar()
         self._connect_signals()
@@ -60,6 +65,15 @@ class MainWindow(QMainWindow):
     def _setup_window(self) -> None:
         self.setWindowTitle("New Customer Operation")
         self.ui.statusbar.showMessage("就绪", 3000)
+
+    def _setup_theme_action(self) -> None:
+        if self.theme_manager is None or not self.theme_manager.is_available():
+            return
+
+        self.toggle_theme_action = QAction("Switch Theme", self)
+        self.toggle_theme_action.setObjectName("actionSwitchTheme")
+        self.ui.menuHelp.addSeparator()
+        self.ui.menuHelp.addAction(self.toggle_theme_action)
 
     def _setup_status_bar(self) -> None:
         container = QWidget(self)
@@ -115,6 +129,22 @@ class MainWindow(QMainWindow):
         self.ui.pushButton_2.clicked.connect(self.submit_to_odm)
         if self.update_button is not None:
             self.update_button.clicked.connect(self._on_check_update_clicked)
+        if self.toggle_theme_action is not None:
+            self.toggle_theme_action.triggered.connect(self._toggle_theme)
+
+    def _toggle_theme(self) -> None:
+        if self.theme_manager is None or not self.theme_manager.toggle_theme():
+            QMessageBox.information(
+                self,
+                "Theme",
+                "No themes are available.",
+            )
+            return
+
+        self.ui.statusbar.showMessage(
+            f"Current theme: {self.theme_manager.current_theme}",
+            3000,
+        )
 
     def _on_check_update_clicked(self) -> None:
         """Handle manual update checks."""
@@ -465,7 +495,10 @@ def main() -> None:
         logging.getLogger(__name__).warning(f"自动完成更新检查失败: {exc}")
 
     app = QApplication(sys.argv)
-    window = MainWindow()
+    theme_manager = ThemeManager(app)
+    theme_manager.set_default_theme()
+
+    window = MainWindow(theme_manager=theme_manager)
     window.show()
     sys.exit(app.exec_())
 
