@@ -59,12 +59,20 @@ def check_files() -> bool:
     print_step(1, "检查必要文件")
 
     missing = []
-    for relative_path in [CONFIG["main_script"], CONFIG["icon_file"]]:
+    required_paths = [CONFIG["main_script"]]
+    optional_paths = [CONFIG["icon_file"]]
+
+    for relative_path in required_paths:
         path = PROJECT_ROOT / relative_path
         exists = path.exists()
         print(f"  {'OK' if exists else 'NO'} {path}")
         if not exists:
             missing.append(str(path))
+
+    for relative_path in optional_paths:
+        path = PROJECT_ROOT / relative_path
+        exists = path.exists()
+        print(f"  {'OK' if exists else 'WARN'} {path}")
 
     print(
         f"  {'OK' if SIGNER_AVAILABLE else 'SKIP'} code_signer: "
@@ -79,6 +87,36 @@ def check_files() -> bool:
 
     print("\n文件检查通过")
     return True
+
+
+def analyze_icon_file(icon_path: Path) -> tuple[bool, str]:
+    """检查图标文件是否为有效 ICO。"""
+    if not icon_path.exists():
+        return False, "图标文件不存在，将跳过应用图标"
+
+    try:
+        header = icon_path.read_bytes()[:32]
+    except Exception as exc:
+        return False, f"读取图标文件失败，将跳过应用图标: {exc}"
+
+    if len(header) < 8:
+        return False, "图标文件过小或已损坏，将跳过应用图标"
+
+    # 标准 ICO 头: 00 00 01 00
+    if header[:4] == b"\x00\x00\x01\x00":
+        return True, "图标文件格式有效"
+
+    # 当前项目里常见的问题是 PNG 被误命名为 .ico
+    if header[:8] == b"\x89PNG\r\n\x1a\n":
+        width = int.from_bytes(header[16:20], "big") if len(header) >= 24 else "?"
+        height = int.from_bytes(header[20:24], "big") if len(header) >= 24 else "?"
+        return (
+            False,
+            f"图标文件扩展名为 .ico，但实际内容是 PNG（{width}x{height}），"
+            "PyInstaller 会报格式错误。请替换为真实 .ico，或安装 Pillow 后改用 PNG。",
+        )
+
+    return False, "图标文件不是有效 ICO，将跳过应用图标"
 
 
 def clean_build_artifacts() -> None:
@@ -196,8 +234,12 @@ def build_exe() -> tuple[bool, str]:
     cmd.append("--console" if CONFIG["console"] else "--windowed")
 
     icon_path = PROJECT_ROOT / CONFIG["icon_file"]
-    if icon_path.exists():
+    icon_ok, icon_message = analyze_icon_file(icon_path)
+    if icon_ok:
         cmd.append(f"--icon={icon_path}")
+        print(f"  图标: {icon_path}")
+    else:
+        print(f"  警告: {icon_message}")
 
     cmd.append(str(PROJECT_ROOT / CONFIG["main_script"]))
 

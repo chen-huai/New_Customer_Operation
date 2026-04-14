@@ -74,10 +74,11 @@ def sign_exe_with_sha1(exe_path: str) -> tuple:
 
     try:
         success, message = _build_signer().sign_file(exe_path, CERT_NAME)
-        print(f"[签名] {'✓ 成功' if success else '✗ 失败'}: {message}")
+        status = "[OK] 成功" if success else "[FAIL] 失败"
+        print(f"[签名] {status}: {message}")
         return success, message
     except Exception as e:
-        print(f"[签名] ✗ 异常: {e}")
+        print(f"[签名] [ERROR] 异常: {e}")
         return False, str(e)
 
 
@@ -93,10 +94,11 @@ def verify_exe_signature(exe_path: str) -> tuple:
 
     try:
         is_signed, message = _build_signer().verify_signature(exe_path)
-        print(f"[验证] {'✓ 签名有效' if is_signed else f'⚠ {message}'}")
+        status = "[OK] 签名有效" if is_signed else f"[WARN] {message}"
+        print(f"[验证] {status}")
         return is_signed, message
     except Exception as e:
-        print(f"[验证] ✗ 异常: {e}")
+        print(f"[验证] [ERROR] 异常: {e}")
         return False, str(e)
 
 
@@ -104,7 +106,7 @@ if __name__ == "__main__":
     target = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_EXE
 
     if not os.path.exists(target):
-        print(f"❌ 文件不存在: {target}")
+        print(f"[ERROR] 文件不存在: {target}")
         print("用法: python code_signer/sign_exe_file.py <exe_path>")
         sys.exit(1)
 
