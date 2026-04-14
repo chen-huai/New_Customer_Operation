@@ -64,6 +64,17 @@ class OdmApiClient:
             raise RuntimeError("客户创建成功，但返回结果中没有 id")
         return data
 
+    def create_applicant(self, applicant_payload: dict) -> dict:
+        """Create the applicant record."""
+        self._ensure_login()
+        response = self.session.post(
+            self._url("/soft-line/basic/applicant/create"),
+            json=applicant_payload,
+            timeout=30,
+        )
+        payload = self._parse_response(response)
+        return payload.get("data") or {}
+
     def add_contacts(self, contacts_payload: Iterable[dict]) -> dict:
         """Create contacts for an invoice."""
         self._ensure_login()

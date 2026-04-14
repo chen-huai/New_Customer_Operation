@@ -226,6 +226,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "配置不完整", "\n".join(config_errors))
             return
 
+        applicant_payload, applicant_warnings = self.customer_mapper.build_applicant_create_payload(
+            self.current_mapped_customer["customer_data"],
+        )
         invoice_payload, payload_warnings = self.customer_mapper.build_invoice_create_payload(
             self.current_mapped_customer["customer_data"],
             config,
@@ -235,17 +238,19 @@ class MainWindow(QMainWindow):
             invoice_id=0,
         )
 
-        warnings = list(self.current_mapped_customer["warnings"]) + payload_warnings
+        warnings = list(self.current_mapped_customer["warnings"]) + applicant_warnings + payload_warnings
         preview_text = self.customer_mapper.format_preview(
             self.current_parsed_form,
             self.current_mapped_customer,
+            applicant_payload=applicant_payload,
             invoice_payload=invoice_payload,
             contact_payloads=contact_payloads,
         )
         self.ui.textBrowser.setText(preview_text)
 
-        if payload_warnings:
-            QMessageBox.warning(self, "提交前检查失败", "\n".join(payload_warnings))
+        blocking_warnings = applicant_warnings + payload_warnings
+        if blocking_warnings:
+            QMessageBox.warning(self, "提交前检查失败", "\n".join(blocking_warnings))
             return
 
         environment = config.get("Environment", "test").strip().lower()
@@ -254,8 +259,9 @@ class MainWindow(QMainWindow):
             "确认提交到 ODM",
             "将执行以下操作：\n"
             f"1. 登录 {environment} 环境\n"
-            "2. 创建 customer / invoice\n"
-            "3. 使用返回的 invoiceId 创建联系人\n\n"
+            "2. 创建 applicant\n"
+            "3. 创建 customer / invoice\n"
+            "4. 使用返回的 invoiceId 创建联系人\n\n"
             "是否继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
@@ -267,6 +273,7 @@ class MainWindow(QMainWindow):
         try:
             client = OdmApiClient(config)
             client.login()
+            client.create_applicant(applicant_payload)
 
             invoice_result = client.create_invoice(invoice_payload)
             invoice_id = invoice_result["id"]
@@ -280,6 +287,7 @@ class MainWindow(QMainWindow):
 
             result_lines = [
                 f"提交成功，环境：{environment}",
+                f"applicant: {applicant_payload.get('name', '')}",
                 f"invoiceId: {invoice_id}",
                 f"联系人数量：{created_contacts}",
                 "",
@@ -297,7 +305,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "提交成功",
-                f"客户已创建，invoiceId={invoice_id}\n联系人数量：{created_contacts}",
+                "申请方与客户已创建\n"
+                f"invoiceId={invoice_id}\n"
+                f"联系人数量：{created_contacts}",
             )
         except Exception as exc:
             QMessageBox.critical(
@@ -341,7 +351,7 @@ class MainWindow(QMainWindow):
             "Help",
             "使用说明：\n\n"
             "1. 获取文件：选择 .docx / .doc 文件，并回填绝对路径。\n"
-            "2. 填入 ODM：读取 Word、解析字段，并提交 customer / contact。\n"
+            "2. 填入 ODM：读取 Word、解析字段，并提交 applicant / customer / contact。\n"
             "3. Export：生成配置文件。\n"
             "4. Import：读取配置文件。\n"
             "5. Update：检查新版本，确认后下载并执行更新。",

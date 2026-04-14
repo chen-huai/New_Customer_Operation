@@ -207,7 +207,7 @@ class CustomerMapper:
                 ("shortName", payer_name_cn or payer_name_en),
                 ("excludeRevenue", False),
                 ("defaultCurrency", default_currency),
-                ("isSystemSend", False),
+                ("isSystemSend", True),
                 ("contactAddress", contact_address),
                 ("siteIds", site_ids),
             ]
@@ -226,6 +226,32 @@ class CustomerMapper:
                 keep = True
             if keep:
                 cleaned[key] = value
+        return cleaned, warnings
+
+    def build_applicant_create_payload(self, customer_data: dict) -> tuple[dict, list[str]]:
+        """Build API payload for /soft-line/basic/applicant/create."""
+        warnings = []
+        payer_name_cn = customer_data.get("customer_name_cn", "").strip()
+        payer_name_en = customer_data.get("customer_name_en", "").strip()
+        applicant_name = payer_name_cn or payer_name_en
+
+        if not applicant_name:
+            warnings.append("未获取到付款中英文名称，无法创建 applicant。")
+            return {}, warnings
+
+        payload = OrderedDict(
+            [
+                ("name", applicant_name),
+                ("nameEn", payer_name_en),
+                ("remark", ""),
+            ]
+        )
+
+        cleaned = {}
+        for key, value in payload.items():
+            if value is None or value == "":
+                continue
+            cleaned[key] = value
         return cleaned, warnings
 
     def build_contact_payloads(self, customer_data: dict, invoice_id: int) -> list[dict]:
@@ -257,6 +283,7 @@ class CustomerMapper:
         self,
         parsed_form: dict,
         mapped: dict,
+        applicant_payload: dict | None = None,
         invoice_payload: dict | None = None,
         contact_payloads: list | None = None,
     ) -> str:
@@ -267,6 +294,14 @@ class CustomerMapper:
             "ODM customer_data:",
             json.dumps(mapped["customer_data"], ensure_ascii=False, indent=2),
         ]
+        if applicant_payload is not None:
+            lines.extend(
+                [
+                    "",
+                    "Applicant create payload:",
+                    json.dumps(applicant_payload, ensure_ascii=False, indent=2),
+                ]
+            )
         if invoice_payload is not None:
             lines.extend(
                 [

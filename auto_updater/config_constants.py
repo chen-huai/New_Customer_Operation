@@ -15,7 +15,7 @@ GITHUB_REPO: str = "New_Customer_Operate"
 GITHUB_API_BASE: str = "https://api.github.com"
 
 # 版本配置
-CURRENT_VERSION: str = "1.0.0"
+CURRENT_VERSION: str = "1.0.1"
 UPDATE_CHECK_INTERVAL_DAYS: int = 30
 AUTO_CHECK_ENABLED: bool = True
 
