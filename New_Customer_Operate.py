@@ -256,6 +256,8 @@ class MainWindow(QMainWindow):
         else:
             combined = text
         self.ui.textBrowser.setPlainText(combined)
+        scrollbar = self.ui.textBrowser.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
         if file_key:
             self._last_info_file_key = file_key
 
@@ -330,6 +332,31 @@ class MainWindow(QMainWindow):
     def check_update(self) -> None:
         self._on_check_update_clicked()
 
+    def _ensure_current_customer_loaded(self, file_path: str) -> bool:
+        if not file_path:
+            QMessageBox.warning(self, "缺少文件", "请先选择 Word 文件。")
+            return False
+
+        if not os.path.exists(file_path):
+            QMessageBox.warning(
+                self,
+                "文件不存在",
+                f"请选择有效的 Word 文件：\n{file_path}",
+            )
+            return False
+
+        if not self.current_parsed_form or self.current_parsed_form["source_file"] != file_path:
+            return self._parse_file(file_path)
+        return True
+
+    def _get_validated_config(self) -> dict | None:
+        config = self.config_mgr.get_config()
+        config_errors = self.config_mgr.validate_config(config)
+        if config_errors:
+            QMessageBox.warning(self, "配置不完整", "\n".join(config_errors))
+            return None
+        return config
+
     def load_word_file(self) -> None:
         current_path = self.ui.lineEdit.text().strip()
         if current_path and os.path.exists(current_path):
@@ -355,33 +382,17 @@ class MainWindow(QMainWindow):
         self.config_mgr.set_config_value("Files_Import_URL", selected_path)
         self.ui.statusbar.showMessage(f"已选择文件：{selected_path}", 5000)
 
-    def submit_to_odm(self) -> None:
+    def submit_payer_to_odm(self) -> None:
+        self.submit_to_odm()
+        return
         file_path = self.ui.lineEdit.text().strip()
-        if not file_path:
-            QMessageBox.warning(self, "缺少文件", "请先选择 Word 文件。")
+        if not self._ensure_current_customer_loaded(file_path):
             return
 
-        if not os.path.exists(file_path):
-            QMessageBox.warning(
-                self,
-                "文件不存在",
-                f"请选择有效的 Word 文件：\n{file_path}",
-            )
+        config = self._get_validated_config()
+        if config is None:
             return
 
-        if not self.current_parsed_form or self.current_parsed_form["source_file"] != file_path:
-            if not self._parse_file(file_path):
-                return
-
-        config = self.config_mgr.get_config()
-        config_errors = self.config_mgr.validate_config(config)
-        if config_errors:
-            QMessageBox.warning(self, "配置不完整", "\n".join(config_errors))
-            return
-
-        applicant_payload, applicant_warnings = self.customer_mapper.build_applicant_create_payload(
-            self.current_mapped_customer["customer_data"],
-        )
         invoice_payload, payload_warnings = self.customer_mapper.build_invoice_create_payload(
             self.current_mapped_customer["customer_data"],
             config,
@@ -391,44 +402,237 @@ class MainWindow(QMainWindow):
             invoice_id=0,
         )
 
-        warnings = list(self.current_mapped_customer["warnings"]) + applicant_warnings + payload_warnings
-        preview_text = self.customer_mapper.format_preview(
+        warnings = list(self.current_mapped_customer["warnings"]) + payload_warnings
+        preview_text = self.customer_mapper.format_payer_preview(
             self.current_parsed_form,
             self.current_mapped_customer,
-            applicant_payload=applicant_payload,
             invoice_payload=invoice_payload,
             contact_payloads=contact_payloads,
-            extra_warnings=applicant_warnings + payload_warnings,
+            extra_warnings=payload_warnings,
         )
         self._append_info_text(preview_text, file_key=file_path)
 
-        blocking_warnings = applicant_warnings + payload_warnings
-        if blocking_warnings:
-            QMessageBox.warning(self, "提交前检查失败", "\n".join(blocking_warnings))
+        if payload_warnings:
+            QMessageBox.warning(self, "提交前检查失败", "\n".join(payload_warnings))
             return
 
         environment = config.get("Environment", "test").strip().lower()
         reply = QMessageBox.question(
             self,
-            "确认提交到 ODM",
+            "确认提交付款方",
             "将执行以下操作：\n"
             f"1. 登录 {environment} 环境\n"
-            "2. 创建 applicant\n"
-            "3. 创建 customer / invoice\n"
-            "4. 使用返回的 invoiceId 创建联系人\n\n"
+            "2. 创建 customer / invoice\n"
+            "3. 使用返回的 invoiceId 创建联系人\n\n"
             "是否继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
-            self.ui.statusbar.showMessage("已取消本次 ODM 提交", 5000)
+            self.ui.statusbar.showMessage("已取消付款方提交", 5000)
             return
 
         try:
             client = OdmApiClient(config)
-            client.login()
-            client.create_applicant(applicant_payload)
+            invoice_result = client.create_invoice(invoice_payload)
+            invoice_id = invoice_result["id"]
 
+            created_contacts = 0
+            if contact_payloads:
+                for contact in contact_payloads:
+                    contact["invoiceId"] = invoice_id
+                client.add_contacts(contact_payloads)
+                created_contacts = len(contact_payloads)
+
+            self._mark_payer_ready(file_path, invoice_id=invoice_id)
+            self._append_info_text(
+                self.customer_mapper.format_payer_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    invoice_id=invoice_id,
+                    created_contacts=created_contacts,
+                    warnings=warnings,
+                ),
+                file_key=file_path,
+            )
+            self.ui.statusbar.showMessage(
+                f"付款方创建成功，invoiceId={invoice_id}",
+                5000,
+            )
+            QMessageBox.information(
+                self,
+                "付款方提交成功",
+                f"invoiceId={invoice_id}\n"
+                f"联系人数量：{created_contacts}\n\n"
+                "现在可以继续提交申请方。",
+            )
+        except Exception as exc:
+            error_message = str(exc)
+            if self._is_duplicate_error(error_message):
+                self._mark_payer_ready(file_path)
+                self._append_info_text(
+                    self.customer_mapper.format_payer_submit_result(
+                        self.current_mapped_customer["customer_data"],
+                        environment=environment,
+                        invoice_id=None,
+                        created_contacts=0,
+                        warnings=warnings + ["ODM 中已存在相同付款方记录。"],
+                        status_text="记录已存在",
+                    ),
+                    file_key=file_path,
+                )
+                QMessageBox.warning(
+                    self,
+                    "付款方已存在",
+                    "ODM 中已存在相同付款方记录。\n\n"
+                    f"客户名称: {self._get_current_customer_name()}\n\n"
+                    "现在可以继续提交申请方。\n\n"
+                    f"接口信息:\n{error_message}",
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "付款方提交失败",
+                    f"提交付款方到 ODM 失败：\n{error_message}",
+                )
+
+    def submit_applicant_to_odm(self) -> None:
+        self.submit_to_odm()
+        return
+        file_path = self.ui.lineEdit.text().strip()
+        if not self._ensure_current_customer_loaded(file_path):
+            return
+
+        if not self._is_payer_ready_for_current_file(file_path):
+            QMessageBox.warning(
+                self,
+                "请先提交付款方",
+                "申请方需要在付款方添加完成后再单独触发。",
+            )
+            return
+
+        config = self._get_validated_config()
+        if config is None:
+            return
+
+        applicant_payload, applicant_warnings = self.customer_mapper.build_applicant_create_payload(
+            self.current_mapped_customer["customer_data"],
+        )
+        preview_text = self.customer_mapper.format_applicant_preview(
+            self.current_parsed_form,
+            self.current_mapped_customer,
+            applicant_payload=applicant_payload,
+            extra_warnings=applicant_warnings,
+        )
+        self._append_info_text(preview_text, file_key=file_path)
+
+        if applicant_warnings:
+            QMessageBox.warning(self, "提交前检查失败", "\n".join(applicant_warnings))
+            return
+
+        environment = config.get("Environment", "test").strip().lower()
+        reply = QMessageBox.question(
+            self,
+            "确认提交申请方",
+            "将执行以下操作：\n"
+            f"1. 登录 {environment} 环境\n"
+            "2. 创建 applicant\n\n"
+            "是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self.ui.statusbar.showMessage("已取消申请方提交", 5000)
+            return
+
+        try:
+            client = OdmApiClient(config)
+            client.create_applicant(applicant_payload)
+            self._append_info_text(
+                self.customer_mapper.format_applicant_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    applicant_payload=applicant_payload,
+                    warnings=list(self.current_mapped_customer["warnings"]) + applicant_warnings,
+                ),
+                file_key=file_path,
+            )
+            self.ui.statusbar.showMessage("申请方创建成功", 5000)
+            QMessageBox.information(
+                self,
+                "申请方提交成功",
+                f"申请方：{applicant_payload.get('name', '')}",
+            )
+        except Exception as exc:
+            error_message = str(exc)
+            if self._is_duplicate_error(error_message):
+                self._append_info_text(
+                    self.customer_mapper.format_applicant_submit_result(
+                        self.current_mapped_customer["customer_data"],
+                        environment=environment,
+                        applicant_payload=applicant_payload,
+                        warnings=list(self.current_mapped_customer["warnings"]) + ["ODM 中已存在相同申请方记录。"],
+                        status_text="记录已存在",
+                    ),
+                    file_key=file_path,
+                )
+                QMessageBox.warning(
+                    self,
+                    "申请方已存在",
+                    "ODM 中已存在相同申请方记录。\n\n"
+                    f"客户名称: {self._get_current_customer_name()}\n\n"
+                    f"接口信息:\n{error_message}",
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "申请方提交失败",
+                    f"提交申请方到 ODM 失败：\n{error_message}",
+                )
+
+    def _run_payer_submission(
+        self,
+        client: OdmApiClient,
+        file_path: str,
+        environment: str,
+        config: dict,
+    ) -> dict:
+        invoice_payload, payload_warnings = self.customer_mapper.build_invoice_create_payload(
+            self.current_mapped_customer["customer_data"],
+            config,
+        )
+        contact_payloads = self.customer_mapper.build_contact_payloads(
+            self.current_mapped_customer["customer_data"],
+            invoice_id=0,
+        )
+        warnings = list(self.current_mapped_customer["warnings"]) + payload_warnings
+
+        self._append_info_text(
+            self.customer_mapper.format_payer_preview(
+                self.current_parsed_form,
+                self.current_mapped_customer,
+                invoice_payload=invoice_payload,
+                contact_payloads=contact_payloads,
+                extra_warnings=payload_warnings,
+            ),
+            file_key=file_path,
+        )
+
+        if payload_warnings:
+            self._append_info_text(
+                self.customer_mapper.format_payer_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    invoice_id=None,
+                    created_contacts=0,
+                    warnings=warnings,
+                    status_text="提交阻止",
+                ),
+                file_key=file_path,
+            )
+            return {"status": "blocked", "message": "\n".join(payload_warnings)}
+
+        try:
             invoice_result = client.create_invoice(invoice_payload)
             invoice_id = invoice_result["id"]
 
@@ -440,7 +644,7 @@ class MainWindow(QMainWindow):
                 created_contacts = len(contact_payloads)
 
             self._append_info_text(
-                self.customer_mapper.format_submit_result(
+                self.customer_mapper.format_payer_submit_result(
                     self.current_mapped_customer["customer_data"],
                     environment=environment,
                     invoice_id=invoice_id,
@@ -449,33 +653,185 @@ class MainWindow(QMainWindow):
                 ),
                 file_key=file_path,
             )
-            self.ui.statusbar.showMessage(
-                f"ODM 创建成功，invoiceId={invoice_id}",
-                5000,
-            )
-            QMessageBox.information(
-                self,
-                "提交成功",
-                "申请方与客户已创建\n"
-                f"invoiceId={invoice_id}\n"
-                f"联系人数量：{created_contacts}",
-            )
+            return {
+                "status": "success",
+                "message": f"invoiceId={invoice_id}, 联系人数={created_contacts}",
+            }
         except Exception as exc:
             error_message = str(exc)
             if self._is_duplicate_error(error_message):
-                QMessageBox.warning(
-                    self,
-                    "记录已存在",
-                    "ODM 中已存在相同客户记录。\n"
-                    f"客户名称: {self._get_current_customer_name()}\n\n"
-                    f"接口信息:\n{error_message}",
+                self._append_info_text(
+                    self.customer_mapper.format_payer_submit_result(
+                        self.current_mapped_customer["customer_data"],
+                        environment=environment,
+                        invoice_id=None,
+                        created_contacts=0,
+                        warnings=warnings + ["ODM 中已存在相同付款方记录。"],
+                        status_text="记录已存在",
+                    ),
+                    file_key=file_path,
                 )
+                return {"status": "duplicate", "message": error_message}
+
+            self._append_info_text(
+                self.customer_mapper.format_payer_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    invoice_id=None,
+                    created_contacts=0,
+                    warnings=warnings + [error_message],
+                    status_text="提交失败",
+                ),
+                file_key=file_path,
+            )
+            return {"status": "failed", "message": error_message}
+
+    def _run_applicant_submission(
+        self,
+        client: OdmApiClient,
+        file_path: str,
+        environment: str,
+    ) -> dict:
+        applicant_payload, applicant_warnings = self.customer_mapper.build_applicant_create_payload(
+            self.current_mapped_customer["customer_data"],
+        )
+        warnings = list(self.current_mapped_customer["warnings"]) + applicant_warnings
+
+        self._append_info_text(
+            self.customer_mapper.format_applicant_preview(
+                self.current_parsed_form,
+                self.current_mapped_customer,
+                applicant_payload=applicant_payload,
+                extra_warnings=applicant_warnings,
+            ),
+            file_key=file_path,
+        )
+
+        if applicant_warnings:
+            self._append_info_text(
+                self.customer_mapper.format_applicant_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    applicant_payload=applicant_payload,
+                    warnings=warnings,
+                    status_text="提交阻止",
+                ),
+                file_key=file_path,
+            )
+            return {"status": "blocked", "message": "\n".join(applicant_warnings)}
+
+        try:
+            client.create_applicant(applicant_payload)
+            self._append_info_text(
+                self.customer_mapper.format_applicant_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    applicant_payload=applicant_payload,
+                    warnings=warnings,
+                ),
+                file_key=file_path,
+            )
+            return {"status": "success", "message": applicant_payload.get("name", "")}
+        except Exception as exc:
+            error_message = str(exc)
+            if self._is_duplicate_error(error_message):
+                self._append_info_text(
+                    self.customer_mapper.format_applicant_submit_result(
+                        self.current_mapped_customer["customer_data"],
+                        environment=environment,
+                        applicant_payload=applicant_payload,
+                        warnings=warnings + ["ODM 中已存在相同申请方记录。"],
+                        status_text="记录已存在",
+                    ),
+                    file_key=file_path,
+                )
+                return {"status": "duplicate", "message": error_message}
+
+            self._append_info_text(
+                self.customer_mapper.format_applicant_submit_result(
+                    self.current_mapped_customer["customer_data"],
+                    environment=environment,
+                    applicant_payload=applicant_payload,
+                    warnings=warnings + [error_message],
+                    status_text="提交失败",
+                ),
+                file_key=file_path,
+            )
+            return {"status": "failed", "message": error_message}
+
+    def submit_to_odm(self) -> None:
+        file_path = self.ui.lineEdit.text().strip()
+        if not self._ensure_current_customer_loaded(file_path):
+            return
+
+        config = self._get_validated_config()
+        if config is None:
+            return
+
+        environment = config.get("Environment", "test").strip().lower()
+        reply = QMessageBox.question(
+            self,
+            "确认提交到 ODM",
+            "将按以下顺序执行：\n"
+            f"1. 登录 {environment} 环境\n"
+            "2. 先完成付款方\n"
+            "3. 再完成申请方\n\n"
+            "两个步骤独立运行，结果分开显示。\n"
+            "是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self.ui.statusbar.showMessage("已取消本次 ODM 提交", 5000)
+            return
+
+        client = OdmApiClient(config)
+        payer_result = self._run_payer_submission(client, file_path, environment, config)
+
+        if payer_result["status"] in {"blocked", "failed"}:
+            if payer_result["status"] == "blocked":
+                QMessageBox.warning(self, "付款方未完成", payer_result["message"])
             else:
-                QMessageBox.critical(
-                    self,
-                    "提交失败",
-                    f"提交到 ODM 失败：\n{error_message}",
-                )
+                QMessageBox.critical(self, "付款方提交失败", payer_result["message"])
+            self.ui.statusbar.showMessage("付款方未完成，申请方未执行", 5000)
+            return
+
+        applicant_result = self._run_applicant_submission(client, file_path, environment)
+
+        payer_status = "成功" if payer_result["status"] == "success" else "已存在"
+        if applicant_result["status"] == "success":
+            applicant_status = "成功"
+        elif applicant_result["status"] == "duplicate":
+            applicant_status = "已存在"
+        elif applicant_result["status"] == "blocked":
+            applicant_status = "未执行"
+        else:
+            applicant_status = "失败"
+
+        summary = (
+            f"付款方: {payer_status}\n"
+            f"申请方: {applicant_status}\n\n"
+            "详细结果已分开显示在信息区域。"
+        )
+        self.ui.statusbar.showMessage(
+            f"付款方: {payer_status}；申请方: {applicant_status}",
+            5000,
+        )
+
+        if applicant_result["status"] == "failed":
+            QMessageBox.critical(
+                self,
+                "申请方提交失败",
+                f"{summary}\n\n接口信息:\n{applicant_result['message']}",
+            )
+        elif applicant_result["status"] == "blocked":
+            QMessageBox.warning(
+                self,
+                "申请方未执行",
+                f"{summary}\n\n原因:\n{applicant_result['message']}",
+            )
+        else:
+            QMessageBox.information(self, "提交完成", summary)
 
     def _parse_file(self, file_path: str) -> bool:
         try:
