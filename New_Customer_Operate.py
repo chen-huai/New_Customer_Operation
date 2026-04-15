@@ -379,7 +379,6 @@ class MainWindow(QMainWindow):
 
         self.ui.lineEdit.setText(selected_path)
         self._append_info_text(f"已选择文件:\n{selected_path}", file_key=selected_path)
-        self.config_mgr.set_config_value("Files_Import_URL", selected_path)
         self.ui.statusbar.showMessage(f"已选择文件：{selected_path}", 5000)
 
     def submit_payer_to_odm(self) -> None:
@@ -848,7 +847,6 @@ class MainWindow(QMainWindow):
         self.current_parsed_form = parsed_form
         self.current_mapped_customer = mapped_customer
         self.ui.lineEdit.setText(file_path)
-        self.config_mgr.set_config_value("Files_Import_URL", file_path)
         self._append_info_text(
             self.customer_mapper.format_preview(parsed_form, mapped_customer),
             file_key=file_path,
