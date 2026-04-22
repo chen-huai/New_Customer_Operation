@@ -50,7 +50,7 @@ class CustomerMapper:
         + "|".join(re.escape(keyword) for keyword in NO_INVOICE_KEYWORDS)
         + r")\s*[）)】\]]?[\s,，;；]*"
     )
-    LABEL_NORMALIZE_PATTERN = re.compile(r"[\s\-_/\\:：,.，;；&()（）【】\[\]<>]+")
+    LABEL_NORMALIZE_PATTERN = re.compile(r"[\s\-_/\\:：,.，;；&*＊()（）【】\[\]<>]+")
     CONTACT_FIELD_ALIASES = {
         "name": ["name", "姓名", "联系人姓名"],
         "direct_line": ["directline", "电话", "直线", "联系电话"],
@@ -278,6 +278,7 @@ class CustomerMapper:
         default_currency = "" if is_foreign_customer else "CNY"
         domestic_tax_payer_id = self._clean_tax_payer_id(customer_data.get("vat_no", ""))
         foreign_tax_payer_id = self._get_foreign_tax_payer_id(customer_data)
+        is_system_send = invoice_type != self.INVOICE_TYPE_NO_NEED
         bank_name_value = "" if is_foreign_customer else bank_name
         bank_account_value = "" if is_foreign_customer else bank_account
         register_address_value = "" if is_foreign_customer else register_address
@@ -310,7 +311,7 @@ class CustomerMapper:
                 ("shortName", payer_name_cn or payer_name_en),
                 ("excludeRevenue", False),
                 ("defaultCurrency", default_currency),
-                ("isSystemSend", True),
+                ("isSystemSend", is_system_send),
                 ("contactAddress", contact_address),
                 ("siteIds", site_ids),
             ]
@@ -845,8 +846,14 @@ class CustomerMapper:
         return None
 
     def _find_row_by_prefix(self, rows: list, prefix: str):
+        normalized_prefix = self._normalize_label(prefix)
         for row in rows:
-            if row and row[0]["text"].startswith(prefix):
+            if not row:
+                continue
+            cell_text = row[0]["text"]
+            if cell_text.startswith(prefix):
+                return row
+            if normalized_prefix and self._normalize_label(cell_text).startswith(normalized_prefix):
                 return row
         return None
 

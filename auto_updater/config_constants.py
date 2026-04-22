@@ -18,7 +18,7 @@ GITHUB_API_BASE: str = "https://api.github.com"
 GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN") or ""
 
 # 版本配置
-CURRENT_VERSION: str = "1.0.3"
+CURRENT_VERSION: str = "1.0.4"
 UPDATE_CHECK_INTERVAL_DAYS: int = 30
 AUTO_CHECK_ENABLED: bool = True
 
