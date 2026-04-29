@@ -150,8 +150,13 @@ class CustomerMapper:
                 customer_data["payment_term"] = ""
                 customer_data["payment_term_raw"] = ""
 
-        if len(tables) > 3:
-            contacts = self._extract_contacts(tables[3]["rows"])
+        contact_table = self._find_table_by_aliases(
+            tables,
+            ["Contact Person", "contactperson"],
+            start_index=3,
+        )
+        if contact_table:
+            contacts = self._extract_contacts(contact_table["rows"])
             customer_data["contacts"] = contacts
             if contacts:
                 first_contact = contacts[0]
@@ -167,8 +172,13 @@ class CustomerMapper:
         else:
             customer_data["contacts"] = []
 
-        if len(tables) > 4:
-            rows = tables[4]["rows"]
+        foreign_tax_table = self._find_table_by_aliases(
+            tables,
+            ["Business Registration NO.", "businessregistrationno", "taiwanvatno", "europevatno"],
+            start_index=4,
+        )
+        if foreign_tax_table:
+            rows = foreign_tax_table["rows"]
             customer_data["hk_business_registration_no"] = self._get_two_column_value(
                 rows,
                 [
@@ -203,8 +213,13 @@ class CustomerMapper:
                 ],
             )
 
-        if len(tables) > 5:
-            rows = tables[5]["rows"]
+        invoice_table = self._find_table_by_aliases(
+            tables,
+            ["Invoice type", "invoicetype", "Opening bank", "openingbankaccountno"],
+            start_index=5,
+        )
+        if invoice_table:
+            rows = invoice_table["rows"]
             invoice_row = self._find_row_by_prefix(rows, "Invoice type")
             invoice_options = []
             if invoice_row:
@@ -236,8 +251,13 @@ class CustomerMapper:
                 ],
             )
 
-        if len(tables) > 6:
-            rows = tables[6]["rows"]
+        requested_table = self._find_table_by_aliases(
+            tables,
+            ["Requested By", "requestedby"],
+            start_index=6,
+        )
+        if requested_table:
+            rows = requested_table["rows"]
             customer_data["requested_by"] = self._get_two_column_value(
                 rows,
                 ["Requested By", "requestedby", "申请人", "提交人"],
@@ -569,6 +589,22 @@ class CustomerMapper:
         if not row or len(row) <= col_idx:
             return ""
         return row[col_idx]["text"]
+
+    def _find_table_by_aliases(self, tables: list, aliases: list[str], start_index: int = 0):
+        for table in tables[start_index:]:
+            if self._table_matches_aliases(table, aliases):
+                return table
+        for table in tables:
+            if self._table_matches_aliases(table, aliases):
+                return table
+        return None
+
+    def _table_matches_aliases(self, table: dict, aliases: list[str]) -> bool:
+        for row in table.get("rows", []):
+            for cell in row:
+                if self._text_matches_aliases(cell.get("text", ""), aliases):
+                    return True
+        return False
 
     def _map_invoice_type(self, customer_data: dict):
         label = customer_data.get("invoice_type", "").strip()
